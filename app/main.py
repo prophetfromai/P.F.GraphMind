@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, APIRouter
 from .database import neo4j_connection
 from .cypher_templates import create_item_template
-from .routers import templates
+from .routers import templates,graphinput
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from neo4j import Driver
@@ -129,3 +129,4 @@ async def create_item(item: ItemCreate):
 # Include all routers
 app.include_router(templates.router)
 app.include_router(api_router)
+app.include_router(graphinput.router)
