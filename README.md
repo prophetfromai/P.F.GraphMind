@@ -1,6 +1,13 @@
 # Neo4j FastAPI Application
 
-A simple FastAPI application that connects to a local Neo4j database.
+A simple FastAPI application that connects to a local Neo4j database. 
+Converts journal entries into embeddings, searches for the most similar entries
+that already exist in the database, starting with the closest match uses the elo 
+ranking system to compare your current idea against the existing ideas and decides to 
+either add a new entry, extend an existing entry or update an equal entry with your
+newest description, updates the knowledge graph. 
+
+
 
 ## Prerequisites
 
@@ -10,26 +17,27 @@ A simple FastAPI application that connects to a local Neo4j database.
 
 ## Setup
 
-CREATE VECTOR INDEX conceptVectorIndex IF NOT EXISTS
-FOR (c:Concept)
-ON (c.embedding)
-OPTIONS { indexConfig: {
- `vector.dimensions`: 1536,
- `vector.similarity_function`: 'cosine'
-}}
-
 1. **Install Neo4j Desktop**:
    - Download and install Neo4j Desktop from [neo4j.com/download](https://neo4j.com/download/)
    - Create a new database
    - Set the password to "password" (or update the .env file with your chosen password)
    - Start the database
 
-2. **Install Python Dependencies**:
+2. **Create index and vector space for embedding**:
+   CREATE VECTOR INDEX conceptVectorIndex IF NOT EXISTS
+   FOR (c:Concept)
+   ON (c.embedding)
+   OPTIONS { indexConfig: {
+   `vector.dimensions`: 1536,
+   `vector.similarity_function`: 'cosine'
+   }}
+
+3. **Install Python Dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **Environment Configuration**:
+4. **Environment Configuration**:
    The application uses the following environment variables (already set in .env):
    ```
    NEO4J_URI=bolt://localhost:7687
@@ -38,6 +46,7 @@ OPTIONS { indexConfig: {
    NEO4J_DATABASE=neo4j
    ```
    If you used a different password during Neo4j setup, update the `NEO4J_PASSWORD` in the `.env` file.
+   NOTE don't bother changing the db name, leave it as the default, it database is not a production supported feature of local hosting the db. 
 
 ## Running the Application
 
@@ -75,4 +84,3 @@ If you encounter connection issues:
 1. Verify Neo4j Desktop is running
 2. Check if the database is started
 3. Verify the credentials in `.env` match your Neo4j setup
-4. Ensure port 7687 is not blocked by your firewall 
