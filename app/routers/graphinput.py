@@ -32,6 +32,7 @@ class ConceptMatch(BaseModel):
     name: str
     description: str
     score: float
+    combined_summary: Optional[str] = None
 
 
 class StatusResponse(BaseModel):
@@ -184,13 +185,14 @@ def integrate_concept(new: ConceptInput, best_match: ConceptMatch, decision: Com
                 MERGE (c:Concept {name: $name})
                 SET c.description = $desc, c.createdAt = date(),
                     c.lastReviewed = date(), c.interval = 1,
-                    c.embedding = $embedding
+                    c.embedding = $embedding, c.combinted_summary = $combinted_summary
                 WITH c
                 MATCH (e:Concept {name: $existing})
                 MERGE (c)-[:EXTENDS]->(e)
                 SET e.interval = e.interval + 1, e.lastReviewed = date()
             """, name=new.name, desc=new.description,
-                 existing=best_match.name, embedding=new.embedding)
+                 existing=best_match.name, embedding=new.embedding, 
+                 combinted_summary=best_match.combined_summary)
         
         elif decision == "equal":
             session.run("""
@@ -310,6 +312,7 @@ def submit_idea(idea: ConceptInput):
                 scores[match.name],
                 result=0.5  # draw
             )
+
     if len(matches) >0:
         best = max(matches, key=lambda m: scores[m.name])
     final_decision = updated_compare_with_llm(idea, best)
