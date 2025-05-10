@@ -40,10 +40,12 @@ newest description, updates the knowledge graph.
 4. **Environment Configuration**:
    The application uses the following environment variables (already set in .env):
    ```
+   # Neo4j Configuration
    NEO4J_URI=bolt://localhost:7687
    NEO4J_USER=neo4j
    NEO4J_PASSWORD=password
-   NEO4J_DATABASE=neo4j
+   NEO4J_DATABASE_NEW="neo4j"
+   OPENAI_API_KEY=""
    ```
    If you used a different password during Neo4j setup, update the `NEO4J_PASSWORD` in the `.env` file.
    NOTE don't bother changing the db name, leave it as the default, it database is not a production supported feature of local hosting the db. 
