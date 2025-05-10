@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, APIRouter
 from .database import neo4j_connection
 from .cypher_templates import create_item_template
@@ -6,7 +7,10 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from neo4j import Driver
 from contextlib import asynccontextmanager
+import os
 
+load_dotenv()
+print(f'database name {os.getenv("NEO4J_DATABASE_NEW")} and {os.getenv("NEO4J_URI")}') 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -38,7 +42,7 @@ class ItemCreate(BaseModel):
 async def health_check():
     driver: Optional[Driver] = None
     try:
-        driver = neo4j_connection.connect()
+        driver = neo4j_connection.connect
         if not driver:
             raise HTTPException(status_code=500, detail="Failed to connect to database")
         driver.verify_connectivity()

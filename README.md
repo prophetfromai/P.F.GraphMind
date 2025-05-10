@@ -10,6 +10,14 @@ A simple FastAPI application that connects to a local Neo4j database.
 
 ## Setup
 
+CREATE VECTOR INDEX conceptVectorIndex IF NOT EXISTS
+FOR (c:Concept)
+ON (c.embedding)
+OPTIONS { indexConfig: {
+ `vector.dimensions`: 1536,
+ `vector.similarity_function`: 'cosine'
+}}
+
 1. **Install Neo4j Desktop**:
    - Download and install Neo4j Desktop from [neo4j.com/download](https://neo4j.com/download/)
    - Create a new database
