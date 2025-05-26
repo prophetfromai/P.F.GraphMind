@@ -1,26 +1,14 @@
+import os
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import List, Literal
-from datetime import date
-from neo4j import GraphDatabase,Driver
+from neo4j import Driver
 from typing import List, Optional, Dict, Any, Literal
 from ..database import neo4j_connection
 from openai import OpenAI
-from dotenv import load_dotenv
-load_dotenv()
-import os
-import json
+
 
 router = APIRouter(prefix="/api/v1/input", tags=["input"])
-
 client = OpenAI()
-
-# === CONFIG ===
-# NEO4J_URI = "bolt://localhost:7687"
-# NEO4J_USER = "neo4j"
-# NEO4J_PASSWORD = "your_password"
-# OPENAI_API_KEY = "your_openai_key"
-# openai.api_key = OPENAI_API_KEY
 
 # === MODELS ===
 class ConceptInput(BaseModel):
@@ -33,14 +21,18 @@ class ConceptMatch(BaseModel):
     description: str
     score: float
     combined_summary: Optional[str] = None
+    embedding: Optional[List[float]] = None
+    similarity: Optional[float] = None
+    
 
 
-class StatusResponse(BaseModel):
+class CompareResult(BaseModel):
     status: Literal['new', 'extend', 'equal']
 
-# # === INIT ===
-# app = FastAPI()
-
+class CombinedSummary(BaseModel):
+    name: str
+    description: str
+    notes: Optional[str] = None  # any additional clarification or nuance
 
 # === UTILS ===
 def calculate_elo_rating(rating1: float, rating2: float, result: float, k_factor: float = 32) -> tuple[float, float]:
@@ -64,6 +56,8 @@ def calculate_elo_rating(rating1: float, rating2: float, result: float, k_factor
     new_rating1 = rating1 + k_factor * (result - expected1)
     new_rating2 = rating2 + k_factor * ((1 - result) - expected2)
     
+    print(f'Zac test rating1, rating2 {rating1}, {rating2}')
+    
     return new_rating1, new_rating2
 
 def get_embeddings(input: str):
@@ -71,7 +65,6 @@ def get_embeddings(input: str):
     input=input,
     model="text-embedding-3-small"
     )
-
     return(response.data[0].embedding)
 
 def get_similar_concepts(embedding: List[float], k: int = 5) -> List[ConceptMatch]:
@@ -89,12 +82,11 @@ def get_similar_concepts(embedding: List[float], k: int = 5) -> List[ConceptMatc
             RETURN node.name AS name, node.description AS description, score
             ORDER BY score DESC
         """, k=k, embedding=embedding)
+        real_return = [x for x in result]
+        print(f'ZAC TEST  - real result {real_return} and first position {real_return[0]}')
         return_value = [ConceptMatch(**r) for r in result]
-        print(f'first in the list {return_value[0]}')
+        print(f'Best match found in the list {return_value[0]}')
         return return_value
-
-class CompareResult(BaseModel):
-    status: Literal['new', 'extend', 'equal']
 
 def updated_compare_with_llm(new: ConceptInput, existing: ConceptMatch) -> CompareResult:
     user_input = f"""
@@ -131,22 +123,82 @@ def updated_compare_with_llm(new: ConceptInput, existing: ConceptMatch) -> Compa
         response_format=CompareResult,
     )
     result = completion.choices[0].message.parsed
-    # result = response["choices"][0]["message"]["content"].strip().lower()
-    # Use the Pydantic model to validate and enforce allowed values
-    return result.status
+    print(f'zac test result {result} new idea {new.name} and existing {existing.name}')
+    return result
 
+def combine_ideas_llm(new: ConceptInput, existing: ConceptMatch) -> CombinedSummary:
+    user_input = f"""
+    New Idea:
+    {new.name}: {new.description}
 
-@router.post("/compare-concept", response_model=CompareResult)
-def compare_concept(new: ConceptInput, existing: ConceptMatch):
-    return updated_compare_with_llm(new, existing)
+    Existing Idea:
+    {existing.name}: {existing.description}
+    """
 
-@router.post("/concept/create", response_model=Dict[str, str])
-def create_concept(concept: ConceptInput):
-    success = create_new_concept(concept)
-    if success:
-        return {"status": "Concept created successfully"}
-    else:
-        return {"status": "Failed to create concept"}
+    prompt = """
+    You are an assistant helping a user maintain an accurate and detailed knowledge graph of their ideas.
+    Your job is to merge two ideas — keeping all original information intact and not hallucinating or inferring beyond what is written.
+
+    Generate a single, combined version of the two ideas. You must:
+    - Preserve all meaningful information from both the new and existing idea.
+    - Not invent, assume, or compress ideas beyond what is written.
+    - Create a clear, merged title and description that unifies both without losing meaning.
+    - Include optional notes if any distinctions between the two should be preserved.
+
+    Reply in this format:
+    {
+        "name": "...",
+        "description": "...",
+        "notes": "..."
+    }
+    """
+
+    completion = client.beta.chat.completions.parse(
+        model="gpt-4o-2024-08-06",
+        messages=[
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": user_input}
+        ],
+        response_format=CombinedSummary
+    )
+    return completion.choices[0].message.parsed
+
+def integrate_concept(new: ConceptInput, best_match: ConceptMatch, decision: CompareResult):
+    driver: Optional[Driver] = None
+    try:
+        driver = neo4j_connection.connect()
+    except Exception as e:
+        print(f"Failed to connect to Neo4j: {e}")
+        return []
+
+    with driver.session() as session:
+        if decision == "extend":
+            session.run("""
+                MERGE (c:Concept {name: $name})
+                SET c.description = $desc, c.createdAt = date(),
+                    c.lastReviewed = date(), c.interval = 1,
+                    c.embedding = $embedding, c.combined_summary = $combined_summary
+                WITH c
+                MATCH (e:Concept {name: $existing})
+                MERGE (c)-[:EXTENDS]->(e)
+                SET e.interval = e.interval + 1, e.lastReviewed = date()
+            """, name=new.name, desc=new.description,
+                 existing=best_match.name, embedding=new.embedding, 
+                 combined_summary=best_match.combined_summary)
+        
+        elif decision == "equal":
+            session.run("""
+                MATCH (c:Concept {name: $existing})
+                SET c.description = $desc
+            """, existing=best_match.name, desc=new.description)
+
+        elif decision == "new":
+            session.run("""
+                MERGE (c:Concept {name: $name})
+                SET c.description = $desc, c.createdAt = date(),
+                    c.lastReviewed = date(), c.interval = 1,
+                    c.embedding = $embedding
+            """, name=new.name, desc=new.description, embedding=new.embedding)
 
 def create_new_concept(concept: ConceptInput):
     driver: Optional[Driver] = None
@@ -171,151 +223,79 @@ def create_new_concept(concept: ConceptInput):
     return True
 
 
-def integrate_concept(new: ConceptInput, best_match: ConceptMatch, decision: CompareResult):
-    driver: Optional[Driver] = None
-    try:
-        driver = neo4j_connection.connect()
-    except Exception as e:
-        print(f"Failed to connect to Neo4j: {e}")
-        return []
+# === ROUTES ===
+@router.post("/combine-ideas", response_model=CombinedSummary)
+def combine_ideas_endpoint(new: ConceptInput, existing: ConceptMatch):
+    return combine_ideas_llm(new, existing)
 
-    with driver.session() as session:
-        if decision == "extend":
-            session.run("""
-                MERGE (c:Concept {name: $name})
-                SET c.description = $desc, c.createdAt = date(),
-                    c.lastReviewed = date(), c.interval = 1,
-                    c.embedding = $embedding, c.combinted_summary = $combinted_summary
-                WITH c
-                MATCH (e:Concept {name: $existing})
-                MERGE (c)-[:EXTENDS]->(e)
-                SET e.interval = e.interval + 1, e.lastReviewed = date()
-            """, name=new.name, desc=new.description,
-                 existing=best_match.name, embedding=new.embedding, 
-                 combinted_summary=best_match.combined_summary)
-        
-        elif decision == "equal":
-            session.run("""
-                MATCH (c:Concept {name: $existing})
-                SET c.description = $desc
-            """, existing=best_match.name, desc=new.description)
+@router.post("/compare-concept", response_model=CompareResult)
+def compare_concept(new: ConceptInput, existing: ConceptMatch):
+    return updated_compare_with_llm(new, existing)
 
-        elif decision == "new":
-            session.run("""
-                MERGE (c:Concept {name: $name})
-                SET c.description = $desc, c.createdAt = date(),
-                    c.lastReviewed = date(), c.interval = 1,
-                    c.embedding = $embedding
-            """, name=new.name, desc=new.description, embedding=new.embedding)
+@router.post("/concept/create", response_model=Dict[str, str])
+def create_concept(concept: ConceptInput):
+    success = create_new_concept(concept)
+    if success:
+        return {"status": "Concept created successfully"}
+    else:
+        return {"status": "Failed to create concept"}
 
-
-# === ROUTE ===
-@router.get("/get-database-info", tags=["database"])
-def get_database_info() -> Dict[str, Any]:
-    """
-    Returns the name of the current Neo4j database and a list of all available databases.
-
-    Returns:
-        Dict[str, Any]: {
-            "current_database": "<name>",
-            "available_databases": ["db1", "db2", ...]
-        }
-    """
-    driver: Optional[Driver] = None
-    try:
-        driver = neo4j_connection.connect()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to connect to Neo4j: {e}")
-    databasename = os.getenv("NEO4J_DATABASE")
-    with driver.session(database="lostandfound") as session:
-        try:
-            # Get current database
-            current_db_result = session.run("SHOW HOME DATABASE")
-            current_db = current_db_result.single()["name"]
-            # Get all databases
-            databases_result = session.run("SHOW DATABASES")
-            available_databases = [record["name"] for record in databases_result]
-
-            return {
-                "current_database": current_db,
-                "available_databases": available_databases
-            }
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error querying databases: {e}")
-
-
-
-@router.get("/get_database_indexes",tags=["database"])
-def get_database_indexes() -> List[Dict[str, Any]]:
-    """
-    Get all indexes from the Neo4j database.
-    
-    Returns:
-        List[Dict[str, Any]]: List of index information including name, type, labels, properties, and status
-    """
-    driver: Optional[Driver] = None
-    try:
-        driver = neo4j_connection.connect()
-    except Exception as e:
-        print(f"Failed to connect to Neo4j: {e}")
-        return []
-        
-    with driver.session(database="lostandfound") as session:
-        try:
-            # First get the current database name
-            db_result = session.run("SHOW HOME DATABASE")
-            result = session.run("SHOW INDEXES")
-            return db_result
-        except Exception as e:
-            print(f"Error checking indexes: {e}")
-            return []
 
 
 @router.post("/submit-idea")
 def submit_idea(idea: ConceptInput):
     print(f'zac test submit idea embeddings {idea.description}')
-    idea.embedding = get_embeddings(f'name: {idea.name} description: {idea.description}')
-
-    matches = get_similar_concepts(idea.embedding)
-   # Initialize scores with default Elo rating of 1500
-   # Start with the closest ranking to the idea > connectedness/x_connectiondepth... of the top k results.
-   # Consolidating and distilling knowledge upwards.
-   # Small human context window with your lense/s applied; personal current context.
-   # Influence and prime your system two and system one to make reliable decisions,
-   # influenced by your own choice/s and perspective/s and taste/s. 
-   # I believe that the manufacturable minerals of the future digital fossil fuels (like mining 1 bitcoin in a week on a normal computer) 
-   # is in the organic, opinionated construction of knowledge graphs which also include meta-thinking and mapping of decision making graph structures 
-   # that can be developed/grown organically, slowly, over time. 
-    scores = {m.name: 1500 for m in matches}
-    scores[idea.name] = 1500  # Initialize new idea's score
     
-    for match in matches:
-        winner = updated_compare_with_llm(idea, match)
+    # Step 1: Generate embedding
+    idea.embedding = get_embeddings(f'name: {idea.name} description: {idea.description}')
+    
+    # Step 2: Find similar concepts (already sorted by similarity)
+    matches = get_similar_concepts(idea.embedding)  # Should return a list sorted by similarity
+    
+    # Step 3: Pick the top match
+    best = matches[0] if matches else None
+    
+    # Step 4: Decide what to do
+    if best:
+        final_decision = updated_compare_with_llm(idea, best)
         
-        # Update ratings using our Elo calculation
-        # 
-        if winner == "new":
-            scores[idea.name], scores[match.name] = calculate_elo_rating(
-                scores[idea.name], 
-                scores[match.name],
-                result=1.0  # new idea wins
+        if final_decision == "extend":
+            combined = combine_ideas_llm(idea, best)
+            best.combined_summary = f'name: {combined.name}, description: {combined.description}, notes: {combined.notes}'
+            best.embedding = get_embeddings(
+                f'name: {best.name} description: {best.description} combined_summary: {best.combined_summary}'
             )
-        elif winner == "extend":
-            scores[idea.name], scores[match.name] = calculate_elo_rating(
-                scores[idea.name], 
-                scores[match.name],
-                result=0.0  # existing idea wins
-            )
-        else:  # winner == "equal"
-            scores[idea.name], scores[match.name] = calculate_elo_rating(
-                scores[idea.name], 
-                scores[match.name],
-                result=0.5  # draw
-            )
+        
+        integrate_concept(idea, best, final_decision)
+        
+        return {
+            "integrated_against": best.name,
+            "similarity": best.similarity,
+            "decision": final_decision
+        }
 
-    if len(matches) >0:
-        best = max(matches, key=lambda m: scores[m.name])
-    final_decision = updated_compare_with_llm(idea, best)
-    integrate_concept(idea, best, final_decision)
+    # Step 5: No match found — treat as new
+    integrate_concept(idea, None, "new")
+    return {
+        "integrated_against": None,
+        "decision": "new"
+    }
 
-    return {"integrated_against": best.name, "decision": final_decision, "score": scores}
+
+# def workflow(idea: ConceptInput):
+#     '''
+#     First tell it as a story
+#     1. find the top 5 closest ideas using the idea as embeddings
+#     2. decide how if at all it is similar, dissimilar
+#         if its similar or the same, either extend the existing idea or create a new idea
+#     3. To extend an existing idea because its almost the same, first check the connections it has and what nodes
+#         and use them in the prompt to analyse the new entry for likeness. ONLY allowing a maximum of x new connections and nodes
+#         if they are required. 
+#     4. 
+#     linked one 
+
+#     Finish with your action to start the next time faster e.g. Carry on from exactly here graphinput line 310, we were listing the 
+#     way we are building the app > split into features and start building. Task list. Doesn't matter, just keep coming back. 
+#     50 pullups, 50 pressups, 50 writing code. This is a diary now, this should be going into the graph.
+
+#     '''

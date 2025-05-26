@@ -1,8 +1,6 @@
 from neo4j import GraphDatabase
 import os
 from typing import Optional
-from dotenv import load_dotenv
-load_dotenv()
 import logging
 
 
@@ -25,8 +23,6 @@ class Neo4jConnection:
             self.uri,
             auth=(self.user, self.password),
         )
-        print('***********************************')
-        print(f'database name is {self.database}')
         return self.driver
 
     def close(self):
@@ -38,8 +34,10 @@ class Neo4jConnection:
             with self.connect() as driver:
                 print(f"Connection successful! database name:{self.database}")
 
-                driver.verify_connectivity()
-                return True
+                verify = driver.verify_connectivity()
+                server_info = driver.get_server_info()
+                print(f'ZAC TEST verify {verify} {driver.get_server_info()}')
+                return server_info
         except Exception as e:
             print(f"Connection error: {e}")
             return False
