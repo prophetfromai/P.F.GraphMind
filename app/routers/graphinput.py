@@ -2,9 +2,11 @@ import os
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from neo4j import Driver
-from typing import List, Optional, Dict, Any, Literal
+from typing import List, Optional, Dict, Any, Literal, Union
 from ..database import neo4j_connection
 from openai import OpenAI
+from openai.types.chat import ChatCompletionMessage
+from datetime import datetime
 
 
 router = APIRouter(prefix="/api/v1/input", tags=["input"])
@@ -15,16 +17,35 @@ class ConceptInput(BaseModel):
     name: str
     description: str
     embedding: Optional[List[float]] = None
+    valid_from: Optional[datetime] = None  # When the concept became true
+    context: Optional[str] = None  # Additional context about when/where/why
+
+class ConceptVersion(BaseModel):
+    name: str
+    description: str
+    embedding: Optional[List[float]] = None
+    valid_from: datetime
+    valid_to: Optional[datetime] = None
+    transaction_from: datetime
+    transaction_to: Optional[datetime] = None
+    version: int
+    context: Optional[str] = None
 
 class ConceptMatch(BaseModel):
     name: str
     description: str
     score: float
-    combined_summary: Optional[str] = None
     embedding: Optional[List[float]] = None
     similarity: Optional[float] = None
-    
+    valid_from: datetime
+    valid_to: Optional[datetime] = None
+    version: int
 
+class EvolutionResult(BaseModel):
+    parent_versions: List[Dict[str, Any]]  # List of parent concept versions
+    evolution_type: Literal['variation', 'combination', 'refinement', 'branch']
+    confidence: float
+    explanation: str
 
 class CompareResult(BaseModel):
     status: Literal['new', 'extend', 'equal']
@@ -32,40 +53,23 @@ class CompareResult(BaseModel):
 class CombinedSummary(BaseModel):
     name: str
     description: str
-    notes: Optional[str] = None  # any additional clarification or nuance
+    notes: Optional[str] = None
+
+class RankingResult(BaseModel):
+    relevance: float
+    explanation: str
+
+class RankingsResponse(BaseModel):
+    rankings: Dict[str, RankingResult]
 
 # === UTILS ===
-def calculate_elo_rating(rating1: float, rating2: float, result: float, k_factor: float = 32) -> tuple[float, float]:
-    """
-    Calculate new Elo ratings for two players.
-    
-    Args:
-        rating1: Current rating of first player
-        rating2: Current rating of second player
-        result: Result of the match (1.0 for first player win, 0.0 for second player win, 0.5 for draw)
-        k_factor: K-factor determines how much ratings change (default: 32)
-    
-    Returns:
-        tuple: (new_rating1, new_rating2)
-    """
-    # Calculate expected scores
-    expected1 = 1 / (1 + 10 ** ((rating2 - rating1) / 400))
-    expected2 = 1 - expected1
-    
-    # Calculate new ratings
-    new_rating1 = rating1 + k_factor * (result - expected1)
-    new_rating2 = rating2 + k_factor * ((1 - result) - expected2)
-    
-    print(f'Zac test rating1, rating2 {rating1}, {rating2}')
-    
-    return new_rating1, new_rating2
 
-def get_embeddings(input: str):
+def get_embeddings(input: str) -> List[float]:
     response = client.embeddings.create(
-    input=input,
-    model="text-embedding-3-small"
+        input=input,
+        model="text-embedding-3-small"
     )
-    return(response.data[0].embedding)
+    return response.data[0].embedding
 
 def get_similar_concepts(embedding: List[float], k: int = 5) -> List[ConceptMatch]:
     driver: Optional[Driver] = None
@@ -75,18 +79,25 @@ def get_similar_concepts(embedding: List[float], k: int = 5) -> List[ConceptMatc
         print(f"Failed to connect to Neo4j: {e}")
         return []
     
+    if not driver:
+        return []
+        
     with driver.session() as session:
         result = session.run("""
             CALL db.index.vector.queryNodes("conceptVectorIndex", $k, $embedding)
             YIELD node, score
-            RETURN node.name AS name, node.description AS description, score
+            WHERE node.transaction_to IS NULL  // Only current versions
+            RETURN node.name AS name, 
+                   node.description AS description, 
+                   score,
+                   node.embedding AS embedding,
+                   node.valid_from AS valid_from,
+                   node.valid_to AS valid_to,
+                   node.version AS version
             ORDER BY score DESC
         """, k=k, embedding=embedding)
-        real_return = [x for x in result]
-        print(f'ZAC TEST  - real result {real_return} and first position {real_return[0]}')
-        return_value = [ConceptMatch(**r) for r in result]
-        print(f'Best match found in the list {return_value[0]}')
-        return return_value
+        
+        return [ConceptMatch(**record) for record in result]
 
 def updated_compare_with_llm(new: ConceptInput, existing: ConceptMatch) -> CompareResult:
     user_input = f"""
@@ -97,7 +108,6 @@ def updated_compare_with_llm(new: ConceptInput, existing: ConceptMatch) -> Compa
     {existing.name}: {existing.description}
     """
     
-
     prompt = f"""
     Compare the two ideas:
 
@@ -116,15 +126,26 @@ def updated_compare_with_llm(new: ConceptInput, existing: ConceptMatch) -> Compa
     Existing Idea:
     An app connected to a knowledge graph to record what I write. 
     """
-    completion = client.beta.chat.completions.parse(
-        model="gpt-4o-2024-08-06",
-        messages=[{"role": "system", "content": prompt},
-                   {"role": "user", "content": user_input}],
-        response_format=CompareResult,
+    
+    completion = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": user_input}
+        ],
+        response_format={"type": "json_object"}
     )
-    result = completion.choices[0].message.parsed
-    print(f'zac test result {result} new idea {new.name} and existing {existing.name}')
-    return result
+    
+    response = completion.choices[0].message.content
+    if not response:
+        return CompareResult(status="new")
+        
+    try:
+        result = CompareResult.model_validate_json(response)
+        return result
+    except Exception as e:
+        print(f"Error parsing compare result: {e}")
+        return CompareResult(status="new")
 
 def combine_ideas_llm(new: ConceptInput, existing: ConceptMatch) -> CombinedSummary:
     user_input = f"""
@@ -153,52 +174,165 @@ def combine_ideas_llm(new: ConceptInput, existing: ConceptMatch) -> CombinedSumm
     }
     """
 
-    completion = client.beta.chat.completions.parse(
-        model="gpt-4o-2024-08-06",
+    completion = client.chat.completions.create(
+        model="gpt-4",
         messages=[
             {"role": "system", "content": prompt},
             {"role": "user", "content": user_input}
         ],
-        response_format=CombinedSummary
+        response_format={"type": "json_object"}
     )
-    return completion.choices[0].message.parsed
+    
+    response = completion.choices[0].message.content
+    if not response:
+        return CombinedSummary(name=new.name, description=new.description)
+        
+    try:
+        result = CombinedSummary.model_validate_json(response)
+        return result
+    except Exception as e:
+        print(f"Error parsing combined summary: {e}")
+        return CombinedSummary(name=new.name, description=new.description)
 
-def integrate_concept(new: ConceptInput, best_match: ConceptMatch, decision: CompareResult):
+def analyze_evolution(new: ConceptInput, matches: List[ConceptMatch]) -> EvolutionResult:
+    """
+    Analyze how the new concept might evolve from existing concepts.
+    """
+    prompt = f"""
+    Analyze how this new idea might have evolved from existing ideas in the knowledge graph.
+    Consider:
+    1. Which existing ideas might have influenced this new idea
+    2. What type of evolution occurred (variation, combination, refinement, or branching)
+    3. How confident you are in this analysis
+    4. Why this evolution makes sense
+
+    New Idea:
+    {new.name}: {new.description}
+    Context: {new.context}
+
+    Existing Ideas:
+    {[f"{m.name} (v{m.version}): {m.description}" for m in matches]}
+
+    Return in this format:
+    {{
+        "parent_versions": [
+            {{
+                "name": "concept_name",
+                "version": 1,
+                "influence": "how this version influenced the new idea"
+            }}
+        ],
+        "evolution_type": "variation|combination|refinement|branch",
+        "confidence": 0.95,
+        "explanation": "detailed explanation"
+    }}
+    """
+    
+    completion = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are an evolutionary analysis system that identifies how ideas evolve and connect."},
+            {"role": "user", "content": prompt}
+        ],
+        response_format={"type": "json_object"}
+    )
+    
+    response = completion.choices[0].message.content
+    if not response:
+        return EvolutionResult(
+            parent_versions=[],
+            evolution_type="branch",
+            confidence=0.0,
+            explanation="No evolution analysis available"
+        )
+        
+    try:
+        result = EvolutionResult.model_validate_json(response)
+        return result
+    except Exception as e:
+        print(f"Error parsing evolution result: {e}")
+        return EvolutionResult(
+            parent_versions=[],
+            evolution_type="branch",
+            confidence=0.0,
+            explanation=f"Error in evolution analysis: {str(e)}"
+        )
+
+def get_next_version(name: str, driver: Driver) -> int:
+    """Get the next version number for a concept."""
+    with driver.session() as session:
+        result = session.run("""
+            MATCH (c:Concept {name: $name})
+            RETURN max(c.version) as max_version
+        """, name=name)
+        record = result.single()
+        return (record["max_version"] or 0) + 1
+
+def integrate_concept(new: ConceptInput, evolution: EvolutionResult) -> bool:
+    """
+    Integrate the new concept into the graph with bitemporal tracking.
+    """
     driver: Optional[Driver] = None
     try:
         driver = neo4j_connection.connect()
     except Exception as e:
         print(f"Failed to connect to Neo4j: {e}")
-        return []
+        return False
+
+    if not driver:
+        return False
+
+    now = datetime.utcnow()
+    valid_from = new.valid_from or now
 
     with driver.session() as session:
-        if decision == "extend":
-            session.run("""
-                MERGE (c:Concept {name: $name})
-                SET c.description = $desc, c.createdAt = date(),
-                    c.lastReviewed = date(), c.interval = 1,
-                    c.embedding = $embedding, c.combined_summary = $combined_summary
-                WITH c
-                MATCH (e:Concept {name: $existing})
-                MERGE (c)-[:EXTENDS]->(e)
-                SET e.interval = e.interval + 1, e.lastReviewed = date()
-            """, name=new.name, desc=new.description,
-                 existing=best_match.name, embedding=new.embedding, 
-                 combined_summary=best_match.combined_summary)
+        # Get next version number
+        version = get_next_version(new.name, driver)
         
-        elif decision == "equal":
+        # Create new version
+        session.run("""
+            MERGE (c:Concept {name: $name})
+            CREATE (v:ConceptVersion {
+                name: $name,
+                description: $desc,
+                embedding: $embedding,
+                valid_from: $valid_from,
+                valid_to: null,
+                transaction_from: $transaction_from,
+                transaction_to: null,
+                version: $version,
+                context: $context
+            })
+            MERGE (c)-[:HAS_VERSION]->(v)
+            SET c.current_version = $version
+        """, name=new.name,
+             desc=new.description,
+             embedding=new.embedding,
+             valid_from=valid_from,
+             transaction_from=now,
+             version=version,
+             context=new.context)
+        
+        # Create evolutionary relationships
+        for parent in evolution.parent_versions:
             session.run("""
-                MATCH (c:Concept {name: $existing})
-                SET c.description = $desc
-            """, existing=best_match.name, desc=new.description)
-
-        elif decision == "new":
-            session.run("""
-                MERGE (c:Concept {name: $name})
-                SET c.description = $desc, c.createdAt = date(),
-                    c.lastReviewed = date(), c.interval = 1,
-                    c.embedding = $embedding
-            """, name=new.name, desc=new.description, embedding=new.embedding)
+                MATCH (v:ConceptVersion {name: $child_name, version: $child_version})
+                MATCH (p:ConceptVersion {name: $parent_name, version: $parent_version})
+                MERGE (v)-[r:EVOLVED_FROM]->(p)
+                SET r.type = $evolution_type,
+                    r.confidence = $confidence,
+                    r.explanation = $explanation,
+                    r.transaction_from = $transaction_from
+            """, child_name=new.name,
+                 child_version=version,
+                 parent_name=parent["name"],
+                 parent_version=parent["version"],
+                 evolution_type=evolution.evolution_type,
+                 confidence=evolution.confidence,
+                 explanation=evolution.explanation,
+                 transaction_from=now)
+        
+        return True
 
 def create_new_concept(concept: ConceptInput):
     driver: Optional[Driver] = None
@@ -222,6 +356,65 @@ def create_new_concept(concept: ConceptInput):
     
     return True
 
+def rerank_matches(query: ConceptInput, matches: List[ConceptMatch], top_k: int = 3) -> List[ConceptMatch]:
+    """
+    Rerank the initial matches using semantic relevance to determine how closely
+    the new idea matches existing concepts.
+    """
+    prompt = f"""
+    Given a new idea and a list of existing ideas, analyze how closely they match.
+    Consider both semantic meaning and specific details.
+    
+    New Idea:
+    {query.name}: {query.description}
+    
+    Existing Ideas:
+    {[f"{m.name}: {m.description}" for m in matches]}
+    
+    For each existing idea, provide:
+    1. A relevance score (0-1) - how closely it matches the new idea
+    2. A brief explanation of why it's relevant or not
+    
+    Return the scores in this format:
+    {{
+        "rankings": {{
+            "idea_name": {{
+                "relevance": 0.95,
+                "explanation": "brief explanation"
+            }}
+        }}
+    }}
+    """
+    
+    completion = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are a precise ranking system that evaluates semantic relationships between ideas."},
+            {"role": "user", "content": prompt}
+        ],
+        response_format={"type": "json_object"}
+    )
+    
+    response = completion.choices[0].message.content
+    if not response:
+        return matches[:top_k]
+        
+    try:
+        rankings = RankingsResponse.model_validate_json(response)
+        
+        # Update the similarity scores in the matches
+        for match in matches:
+            if match.name in rankings.rankings:
+                match.similarity = rankings.rankings[match.name].relevance
+            else:
+                match.similarity = match.score
+        
+        # Sort by the relevance score
+        matches.sort(key=lambda x: x.similarity if x.similarity is not None else 0.0, reverse=True)
+        return matches[:top_k]
+    except Exception as e:
+        print(f"Error parsing rankings: {e}")
+        return matches[:top_k]
 
 # === ROUTES ===
 @router.post("/combine-ideas", response_model=CombinedSummary)
@@ -240,46 +433,96 @@ def create_concept(concept: ConceptInput):
     else:
         return {"status": "Failed to create concept"}
 
-
-
 @router.post("/submit-idea")
 def submit_idea(idea: ConceptInput):
-    print(f'zac test submit idea embeddings {idea.description}')
-    
     # Step 1: Generate embedding
     idea.embedding = get_embeddings(f'name: {idea.name} description: {idea.description}')
     
-    # Step 2: Find similar concepts (already sorted by similarity)
-    matches = get_similar_concepts(idea.embedding)  # Should return a list sorted by similarity
+    # Step 2: Find similar concepts using vector search
+    initial_matches = get_similar_concepts(idea.embedding, k=10)
     
-    # Step 3: Pick the top match
-    best = matches[0] if matches else None
+    # Step 3: Analyze evolution
+    evolution = analyze_evolution(idea, initial_matches)
     
-    # Step 4: Decide what to do
-    if best:
-        final_decision = updated_compare_with_llm(idea, best)
-        
-        if final_decision == "extend":
-            combined = combine_ideas_llm(idea, best)
-            best.combined_summary = f'name: {combined.name}, description: {combined.description}, notes: {combined.notes}'
-            best.embedding = get_embeddings(
-                f'name: {best.name} description: {best.description} combined_summary: {best.combined_summary}'
-            )
-        
-        integrate_concept(idea, best, final_decision)
-        
-        return {
-            "integrated_against": best.name,
-            "similarity": best.similarity,
-            "decision": final_decision
-        }
-
-    # Step 5: No match found — treat as new
-    integrate_concept(idea, None, "new")
+    # Step 4: Integrate into graph
+    success = integrate_concept(idea, evolution)
+    
     return {
-        "integrated_against": None,
-        "decision": "new"
+        "status": "success" if success else "failed",
+        "evolution": evolution,
+        "related_concepts": [{"name": m.name, "version": m.version} for m in initial_matches[:3]]
     }
+
+@router.get("/concept/{name}/history")
+def get_concept_history(name: str):
+    """Get the version history of a concept."""
+    driver: Optional[Driver] = None
+    try:
+        driver = neo4j_connection.connect()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not driver:
+        raise HTTPException(status_code=500, detail="Failed to connect to database")
+
+    with driver.session() as session:
+        result = session.run("""
+            MATCH (c:Concept {name: $name})-[:HAS_VERSION]->(v:ConceptVersion)
+            RETURN v
+            ORDER BY v.version
+        """, name=name)
+        
+        versions = [dict(record["v"]) for record in result]
+        return {"name": name, "versions": versions}
+
+@router.get("/concept/{name}/as-of/{timestamp}")
+def get_concept_as_of(name: str, timestamp: datetime):
+    """Get the state of a concept as of a specific point in time."""
+    driver: Optional[Driver] = None
+    try:
+        driver = neo4j_connection.connect()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not driver:
+        raise HTTPException(status_code=500, detail="Failed to connect to database")
+
+    with driver.session() as session:
+        result = session.run("""
+            MATCH (c:Concept {name: $name})-[:HAS_VERSION]->(v:ConceptVersion)
+            WHERE v.valid_from <= $timestamp
+            AND (v.valid_to IS NULL OR v.valid_to > $timestamp)
+            AND v.transaction_from <= $timestamp
+            AND (v.transaction_to IS NULL OR v.transaction_to > $timestamp)
+            RETURN v
+            ORDER BY v.version DESC
+            LIMIT 1
+        """, name=name, timestamp=timestamp)
+        
+        record = result.single()
+        if not record:
+            raise HTTPException(status_code=404, detail="Concept not found for the specified time")
+            
+        return dict(record["v"])
+
+@router.post("/get-similar-ideas")
+def get_similar_ideas(idea: ConceptInput):
+    # Step 1: Generate embedding
+    idea.embedding = get_embeddings(f'name: {idea.name} description: {idea.description}')
+    
+    # Step 2: Find similar concepts using vector search
+    initial_matches = get_similar_concepts(idea.embedding, k=10)  # Get more matches initially
+    return initial_matches
+
+@router.post("/get-similar-ideas-reranked")
+def get_similar_ideas_reranked(idea: ConceptInput):
+    # Step 1: Generate embedding
+    idea.embedding = get_embeddings(f'name: {idea.name} description: {idea.description}')
+    
+    # Step 2: Find similar concepts using vector search
+    initial_matches = get_similar_concepts(idea.embedding, k=10)  # Get more matches initially
+    reranked_matches = rerank_matches(idea, initial_matches)
+    return reranked_matches
 
 
 # def workflow(idea: ConceptInput):
