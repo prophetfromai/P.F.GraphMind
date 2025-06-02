@@ -136,16 +136,9 @@ def updated_compare_with_llm(new: ConceptInput, existing: ConceptMatch) -> Compa
         response_format={"type": "json_object"}
     )
     
-    response = completion.choices[0].message.content
-    if not response:
+    if not completion.choices[0].message.content:
         return CompareResult(status="new")
-        
-    try:
-        result = CompareResult.model_validate_json(response)
-        return result
-    except Exception as e:
-        print(f"Error parsing compare result: {e}")
-        return CompareResult(status="new")
+    return CompareResult.model_validate_json(completion.choices[0].message.content)
 
 def combine_ideas_llm(new: ConceptInput, existing: ConceptMatch) -> CombinedSummary:
     user_input = f"""
@@ -165,13 +158,6 @@ def combine_ideas_llm(new: ConceptInput, existing: ConceptMatch) -> CombinedSumm
     - Not invent, assume, or compress ideas beyond what is written.
     - Create a clear, merged title and description that unifies both without losing meaning.
     - Include optional notes if any distinctions between the two should be preserved.
-
-    Reply in this format:
-    {
-        "name": "...",
-        "description": "...",
-        "notes": "..."
-    }
     """
 
     completion = client.chat.completions.create(
@@ -183,16 +169,9 @@ def combine_ideas_llm(new: ConceptInput, existing: ConceptMatch) -> CombinedSumm
         response_format={"type": "json_object"}
     )
     
-    response = completion.choices[0].message.content
-    if not response:
+    if not completion.choices[0].message.content:
         return CombinedSummary(name=new.name, description=new.description)
-        
-    try:
-        result = CombinedSummary.model_validate_json(response)
-        return result
-    except Exception as e:
-        print(f"Error parsing combined summary: {e}")
-        return CombinedSummary(name=new.name, description=new.description)
+    return CombinedSummary.model_validate_json(completion.choices[0].message.content)
 
 def analyze_evolution(new: ConceptInput, matches: List[ConceptMatch]) -> EvolutionResult:
     """
@@ -212,20 +191,6 @@ def analyze_evolution(new: ConceptInput, matches: List[ConceptMatch]) -> Evoluti
 
     Existing Ideas:
     {[f"{m.name} (v{m.version}): {m.description}" for m in matches]}
-
-    Return in this format:
-    {{
-        "parent_versions": [
-            {{
-                "name": "concept_name",
-                "version": 1,
-                "influence": "how this version influenced the new idea"
-            }}
-        ],
-        "evolution_type": "variation|combination|refinement|branch",
-        "confidence": 0.95,
-        "explanation": "detailed explanation"
-    }}
     """
     
     completion = client.chat.completions.create(
@@ -237,26 +202,14 @@ def analyze_evolution(new: ConceptInput, matches: List[ConceptMatch]) -> Evoluti
         response_format={"type": "json_object"}
     )
     
-    response = completion.choices[0].message.content
-    if not response:
+    if not completion.choices[0].message.content:
         return EvolutionResult(
             parent_versions=[],
             evolution_type="branch",
             confidence=0.0,
             explanation="No evolution analysis available"
         )
-        
-    try:
-        result = EvolutionResult.model_validate_json(response)
-        return result
-    except Exception as e:
-        print(f"Error parsing evolution result: {e}")
-        return EvolutionResult(
-            parent_versions=[],
-            evolution_type="branch",
-            confidence=0.0,
-            explanation=f"Error in evolution analysis: {str(e)}"
-        )
+    return EvolutionResult.model_validate_json(completion.choices[0].message.content)
 
 def get_next_version(name: str, driver: Driver) -> int:
     """Get the next version number for a concept."""
@@ -282,7 +235,7 @@ def integrate_concept(new: ConceptInput, evolution: EvolutionResult) -> bool:
     if not driver:
         return False
 
-    now = datetime.utcnow()
+    now = datetime.now()
     valid_from = new.valid_from or now
 
     with driver.session() as session:
@@ -374,16 +327,6 @@ def rerank_matches(query: ConceptInput, matches: List[ConceptMatch], top_k: int 
     For each existing idea, provide:
     1. A relevance score (0-1) - how closely it matches the new idea
     2. A brief explanation of why it's relevant or not
-    
-    Return the scores in this format:
-    {{
-        "rankings": {{
-            "idea_name": {{
-                "relevance": 0.95,
-                "explanation": "brief explanation"
-            }}
-        }}
-    }}
     """
     
     completion = client.chat.completions.create(
@@ -395,26 +338,21 @@ def rerank_matches(query: ConceptInput, matches: List[ConceptMatch], top_k: int 
         response_format={"type": "json_object"}
     )
     
-    response = completion.choices[0].message.content
-    if not response:
+    if not completion.choices[0].message.content:
         return matches[:top_k]
         
-    try:
-        rankings = RankingsResponse.model_validate_json(response)
-        
-        # Update the similarity scores in the matches
-        for match in matches:
-            if match.name in rankings.rankings:
-                match.similarity = rankings.rankings[match.name].relevance
-            else:
-                match.similarity = match.score
-        
-        # Sort by the relevance score
-        matches.sort(key=lambda x: x.similarity if x.similarity is not None else 0.0, reverse=True)
-        return matches[:top_k]
-    except Exception as e:
-        print(f"Error parsing rankings: {e}")
-        return matches[:top_k]
+    rankings = RankingsResponse.model_validate_json(completion.choices[0].message.content)
+    
+    # Update the similarity scores in the matches
+    for match in matches:
+        if match.name in rankings.rankings:
+            match.similarity = rankings.rankings[match.name].relevance
+        else:
+            match.similarity = match.score
+    
+    # Sort by the relevance score
+    matches.sort(key=lambda x: x.similarity if x.similarity is not None else 0.0, reverse=True)
+    return matches[:top_k]
 
 # === ROUTES ===
 @router.post("/combine-ideas", response_model=CombinedSummary)
