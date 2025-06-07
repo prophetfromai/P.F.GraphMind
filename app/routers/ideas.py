@@ -136,7 +136,7 @@ def updated_compare_with_llm(new: ConceptInput, existing: ConceptMatch) -> Compa
         response_format=CompareResult
     )
     
-    result = 
+    result = completion.choices[0].message.parsed
     return result(**CompareResult)
 
 def combine_ideas_llm(new: ConceptInput, existing: ConceptMatch) -> CombinedSummary:
