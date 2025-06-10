@@ -141,13 +141,13 @@ def analyze_evolution(new: ConceptInput, matches: List[ConceptMatch]) -> Evoluti
     {[f"{m.name} (v{m.version}): {m.description}" for m in matches]}
     """
     
-    completion = client.chat.completions.create(
+    completion = client.beta.chat.completions.parse(
         model="gpt-4",
         messages=[
             {"role": "system", "content": "You are an evolutionary analysis system that identifies how ideas evolve and connect."},
             {"role": "user", "content": prompt}
         ],
-        response_format={"type": "json_object"}
+        response_format=EvolutionResult
     )
     
     if not completion.choices[0].message.content:
