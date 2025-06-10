@@ -2,7 +2,6 @@
 
 from typing import List, Dict, Optional
 from pydantic import BaseModel
-from openai import OpenAI
 from datetime import datetime
 from app.core.openai_client import client
 from app.models.concept import ConceptInput, ConceptMatch, RankingsResponse

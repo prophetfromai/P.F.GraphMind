@@ -6,10 +6,8 @@
 # core/config.py
 
 import os
-from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 
-load_dotenv()  # Loads .env once here — don't repeat in main.py
 
 class Settings(BaseSettings):
     # Neo4j Configuration
@@ -25,6 +23,7 @@ class Settings(BaseSettings):
     items_per_user: int = 50
 
     OPENAI_API_KEY: str
+
 
     class Config:
         env_file = ".env"

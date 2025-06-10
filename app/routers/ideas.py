@@ -4,13 +4,12 @@ from pydantic import BaseModel
 from neo4j import Driver
 from typing import List, Optional, Dict, Any, Literal, Union
 from ..database import neo4j_connection
-from openai import OpenAI
 from openai.types.chat import ChatCompletionMessage
 from datetime import datetime
+from app.core.openai_client import client
 from app.models.concept import ConceptInput, ConceptMatch, CompareResult, CombinedSummary, EvolutionResult, RankingsResponse
 
 router = APIRouter(prefix="/api/v1/input", tags=["input"])
-client = OpenAI()
 
 # === UTILS ===
 
@@ -19,6 +18,7 @@ def get_embeddings(input: str) -> List[float]:
         input=input,
         model="text-embedding-3-small"
     )
+    print(f"Embedding response: {response}")
     return response.data[0].embedding
 
 def get_similar_concepts(embedding: List[float], k: int = 5) -> List[ConceptMatch]:
