@@ -78,7 +78,7 @@ def updated_compare_with_llm(new: ConceptInput, existing: ConceptMatch) -> Compa
     """
     
     completion = client.beta.chat.completions.parse(
-        model="gpt-4",
+        model="gpt-4o-2024-08-06",
         messages=[
             {"role": "system", "content": prompt},
             {"role": "user", "content": user_input}
@@ -110,7 +110,7 @@ def combine_ideas_llm(new: ConceptInput, existing: ConceptMatch) -> CombinedSumm
     """
 
     completion = client.beta.chat.completions.parse(
-        model="gpt-4",
+        model="gpt-4o-2024-08-06",
         messages=[
             {"role": "system", "content": prompt},
             {"role": "user", "content": user_input}
@@ -142,7 +142,7 @@ def analyze_evolution(new: ConceptInput, matches: List[ConceptMatch]) -> Evoluti
     """
     
     completion = client.beta.chat.completions.parse(
-        model="gpt-4",
+        model="gpt-4o-2024-08-06",
         messages=[
             {"role": "system", "content": "You are an evolutionary analysis system that identifies how ideas evolve and connect."},
             {"role": "user", "content": prompt}
@@ -157,6 +157,7 @@ def analyze_evolution(new: ConceptInput, matches: List[ConceptMatch]) -> Evoluti
             confidence=0.0,
             explanation="No evolution analysis available"
         )
+    print(f"--------Evolution result: {completion.choices[0].message.content}")
     return EvolutionResult.model_validate_json(completion.choices[0].message.content)
 
 def get_next_version(name: str, driver: Driver) -> int:
@@ -277,13 +278,13 @@ def rerank_matches(query: ConceptInput, matches: List[ConceptMatch], top_k: int 
     2. A brief explanation of why it's relevant or not
     """
     
-    completion = client.chat.completions.create(
-        model="gpt-4",
+    completion = client.beta.chat.completions.parse(
+        model="gpt-4o-2024-08-06",
         messages=[
             {"role": "system", "content": "You are a precise ranking system that evaluates semantic relationships between ideas."},
             {"role": "user", "content": prompt}
         ],
-        response_format={"type": "json_object"}
+        response_format=ConceptMatch
     )
     
     if not completion.choices[0].message.content:

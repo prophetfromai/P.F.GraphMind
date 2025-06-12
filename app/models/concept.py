@@ -31,8 +31,16 @@ class ConceptMatch(BaseModel):
     valid_to: Optional[datetime] = None
     version: int
 
+class ParentVersion(BaseModel):
+    name: str
+    description: str
+    embedding: Optional[List[float]] = None
+    valid_from: datetime
+    valid_to: Optional[datetime] = None
+    version: int
+
 class EvolutionResult(BaseModel):
-    parent_versions: List[Dict[str, Any]]  # List of parent concept versions
+    parent_versions: List[ParentVersion]  # List of parent concept versions
     evolution_type: Literal['variation', 'combination', 'refinement', 'branch']
     confidence: float
     explanation: str
