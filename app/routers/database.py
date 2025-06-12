@@ -27,6 +27,15 @@ def get_database_indexes() -> List[Dict[str, Any]]:
     with driver.session(database=settings.NEO4J_DATABASE) as session:
         try:
             result = session.run("SHOW INDEXES")
-            return [record.data() for record in result]
+            # Convert Neo4j DateTime objects to Python datetime objects
+            records = []
+            for record in result:
+                data = record.data()
+                # Convert any Neo4j DateTime objects to Python datetime objects
+                for key, value in data.items():
+                    if hasattr(value, 'to_native'):
+                        data[key] = value.to_native()
+                records.append(data)
+            return records
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error checking indexes: {e}")

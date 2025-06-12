@@ -30,7 +30,15 @@ newest description, updates the knowledge graph.
    OPTIONS { indexConfig: {
    `vector.dimensions`: 1536,
    `vector.similarity_function`: 'cosine'
-   }}
+   }};
+
+   CREATE VECTOR INDEX conceptVersionVectorIndex IF NOT EXISTS
+   FOR (v:ConceptVersion)
+   ON (v.embedding)
+   OPTIONS { indexConfig: {
+   `vector.dimensions`: 1536,
+   `vector.similarity_function`: 'cosine'
+   }};
 
 3. **Install Python Dependencies**:
    ```bash
