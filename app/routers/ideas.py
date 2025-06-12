@@ -412,20 +412,3 @@ def get_similar_ideas_reranked(idea: ConceptInput):
     return reranked_matches
 
 
-# def workflow(idea: ConceptInput):
-#     '''
-#     First tell it as a story
-#     1. find the top 5 closest ideas using the idea as embeddings
-#     2. decide how if at all it is similar, dissimilar
-#         if its similar or the same, either extend the existing idea or create a new idea
-#     3. To extend an existing idea because its almost the same, first check the connections it has and what nodes
-#         and use them in the prompt to analyse the new entry for likeness. ONLY allowing a maximum of x new connections and nodes
-#         if they are required. 
-#     4. 
-#     linked one 
-
-#     Finish with your action to start the next time faster e.g. Carry on from exactly here graphinput line 310, we were listing the 
-#     way we are building the app > split into features and start building. Task list. Doesn't matter, just keep coming back. 
-#     50 pullups, 50 pressups, 50 writing code. This is a diary now, this should be going into the graph.
-
-#     '''
