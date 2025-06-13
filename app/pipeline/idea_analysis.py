@@ -2,45 +2,45 @@ from typing import List
 from app.core.openai_client import client
 from app.models.concept import ConceptInput, ConceptMatch, CompareResult, CombinedSummary, EvolutionResult, RankingsResponse
 
-def updated_compare_with_llm(new: ConceptInput, existing: ConceptMatch) -> CompareResult:
-    user_input = f"""
-    New Idea:
-    {new.name}: {new.description}
+# def updated_compare_with_llm(new: ConceptInput, existing: ConceptMatch) -> CompareResult:
+#     user_input = f"""
+#     New Idea:
+#     {new.name}: {new.description}
 
-    Existing Idea:
-    {existing.name}: {existing.description}
-    """
+#     Existing Idea:
+#     {existing.name}: {existing.description}
+#     """
     
-    prompt = f"""
-    Compare the two ideas:
+#     prompt = f"""
+#     Compare the two ideas:
 
-    New Idea:
-    {new.name}: {new.description}
+#     New Idea:
+#     {new.name}: {new.description}
 
-    Existing Idea:
-    {existing.name}: {existing.description}
+#     Existing Idea:
+#     {existing.name}: {existing.description}
 
-    Which idea extends an existing idea, is more novel or useful or equal to the existing idea? Reply with 'new', 'extend', or 'equal'.
+#     Which idea extends an existing idea, is more novel or useful or equal to the existing idea? Reply with 'new', 'extend', or 'equal'.
 
-    Example Usage:
-    New Idea:
-    Small context note taking app connected to a knowledge graph using image of hand written text. 
+#     Example Usage:
+#     New Idea:
+#     Small context note taking app connected to a knowledge graph using image of hand written text. 
 
-    Existing Idea:
-    An app connected to a knowledge graph to record what I write. 
-    """
+#     Existing Idea:
+#     An app connected to a knowledge graph to record what I write. 
+#     """
     
-    completion = client.beta.chat.completions.parse(
-        model="gpt-4o-2024-08-06",
-        messages=[
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": user_input}
-        ],
-        response_format=CompareResult
-    )
+#     completion = client.beta.chat.completions.parse(
+#         model="gpt-4o-2024-08-06",
+#         messages=[
+#             {"role": "system", "content": prompt},
+#             {"role": "user", "content": user_input}
+#         ],
+#         response_format=CompareResult
+#     )
     
-    result = completion.choices[0].message.parsed
-    return result(**CompareResult)
+#     result = completion.choices[0].message.parsed
+#     return result(**CompareResult)
 
 def combine_ideas_llm(new: ConceptInput, existing: ConceptMatch) -> CombinedSummary:
     user_input = f"""

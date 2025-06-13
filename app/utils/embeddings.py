@@ -5,6 +5,7 @@ from typing import Optional
 from app.core.neo4j_client import neo4j_connection
 from app.models.concept import ConceptMatch
 from neo4j import Driver
+import neo4j.time
 
 def get_embeddings(input: str) -> List[float]:
     response = client.embeddings.create(
@@ -56,6 +57,14 @@ def get_similar_concepts(embedding: List[float], k: int = 5) -> List[ConceptMatc
             ORDER BY score DESC
             LIMIT $k
         """, k=k, embedding=embedding)
-        results = [ConceptMatch(**record) for record in result] 
+        
+        # Convert Neo4j DateTime to Python datetime
+        results = []
+        for record in result:
+            record_dict = dict(record)
+            if isinstance(record_dict['valid_from'], neo4j.time.DateTime):
+                record_dict['valid_from'] = record_dict['valid_from'].to_native()
+            results.append(ConceptMatch(**record_dict))
+        
         print(f"results: {results}")
         return results

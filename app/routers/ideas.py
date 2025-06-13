@@ -9,7 +9,7 @@ from datetime import datetime
 from app.core.openai_client import client
 from app.models.concept import ConceptInput, ConceptMatch, CompareResult, CombinedSummary, EvolutionResult, RankingsResponse
 from app.utils.embeddings import get_embeddings, get_similar_concepts
-from app.pipeline.idea_analysis import updated_compare_with_llm, combine_ideas_llm, analyze_evolution, rerank_matches
+from app.pipeline.idea_analysis import combine_ideas_llm, analyze_evolution, rerank_matches
 from app.pipeline.concept_management import integrate_concept, create_new_concept
 
 router = APIRouter(prefix="/api/v1/input", tags=["input"])
@@ -20,9 +20,9 @@ router = APIRouter(prefix="/api/v1/input", tags=["input"])
 def combine_ideas_endpoint(new: ConceptInput, existing: ConceptMatch):
     return combine_ideas_llm(new, existing)
 
-@router.post("/compare-concept", response_model=CompareResult)
-def compare_concept(new: ConceptInput, existing: ConceptMatch):
-    return updated_compare_with_llm(new, existing)
+# @router.post("/compare-concept", response_model=CompareResult)
+# def compare_concept(new: ConceptInput, existing: ConceptMatch):
+#     return updated_compare_with_llm(new, existing)
 
 @router.post("/concept/create", response_model=Dict[str, str])
 def create_concept(concept: ConceptInput):
