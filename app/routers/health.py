@@ -1,8 +1,7 @@
 # routers/health.py
 from fastapi import APIRouter, HTTPException
-from app.core.config import settings
-from app.database import neo4j_connection
-from app.core.config import settings
+from app.core.database import neo4j_connection
+from app.config import settings
 
 router = APIRouter(prefix="/api/v1", tags=["health"])
 

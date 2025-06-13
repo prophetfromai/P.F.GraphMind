@@ -12,7 +12,7 @@ def get_embeddings(input: str) -> List[float]:
     return response.data[0].embedding
 
 def get_similar_concepts(embedding: List[float], k: int = 5) -> List[ConceptMatch]:
-    from app.database import neo4j_connection
+    from app.core.database import neo4j_connection
     from app.models.concept import ConceptMatch
     from neo4j import Driver
     

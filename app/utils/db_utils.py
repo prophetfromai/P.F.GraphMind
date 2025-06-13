@@ -1,5 +1,5 @@
 from neo4j import Driver
-from app.database import neo4j_connection
+from app.core.database import neo4j_connection
 
 def get_next_version(name: str, driver: Driver) -> int:
     """Get the next version number for a concept."""

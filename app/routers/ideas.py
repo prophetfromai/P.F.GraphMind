@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from neo4j import Driver
 from typing import List, Optional, Dict, Any, Literal, Union
-from ..database import neo4j_connection
+from app.core.database import neo4j_connection
 from openai.types.chat import ChatCompletionMessage
 from datetime import datetime
 from app.core.openai_client import client
