@@ -3,13 +3,13 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from neo4j import Driver
 from typing import List, Optional, Dict, Any, Literal, Union
-from app.core.database import neo4j_connection
+from app.core.neo4j_client import neo4j_connection
 from openai.types.chat import ChatCompletionMessage
 from datetime import datetime
 from app.core.openai_client import client
 from app.models.concept import ConceptInput, ConceptMatch, CompareResult, CombinedSummary, EvolutionResult, RankingsResponse
 from app.utils.embeddings import get_embeddings, get_similar_concepts
-from app.core.idea_analysis import updated_compare_with_llm, combine_ideas_llm, analyze_evolution, rerank_matches
+from app.pipeline.idea_analysis import updated_compare_with_llm, combine_ideas_llm, analyze_evolution, rerank_matches
 from app.pipeline.concept_management import integrate_concept, create_new_concept
 
 router = APIRouter(prefix="/api/v1/input", tags=["input"])

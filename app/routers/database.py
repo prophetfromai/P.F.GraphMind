@@ -1,7 +1,7 @@
 # routers/database.py
 from fastapi import APIRouter, HTTPException
 from app.config import settings
-from app.core.database import neo4j_connection
+from app.core.neo4j_client import neo4j_connection
 from typing import List, Dict, Any
 from neo4j import Driver
 

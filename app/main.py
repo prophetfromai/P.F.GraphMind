@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from app.utils.neo4j_client import neo4j_connection
+from app.core.neo4j_client import neo4j_connection
 from app.routers import ideas, health, database, semantic
 import os
 

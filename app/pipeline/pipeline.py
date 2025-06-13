@@ -6,6 +6,7 @@ from .gpt_reranker import gpt_final_rerank
 from app.models.concept import ConceptInput, ConceptMatch
 from typing import List
 
+
 def semantic_ranking_pipeline(query: ConceptInput) -> List[ConceptMatch]:
     query_embedding = get_embeddings(query.name + " " + query.description)
     print(f"Query embedding: {query.name + " " + query.description}")
@@ -18,5 +19,5 @@ def semantic_ranking_pipeline(query: ConceptInput) -> List[ConceptMatch]:
 
     final_ranked = gpt_final_rerank(query, reranked_matches)
     print(f"Final ranked: {final_ranked}")
-    
+
     return final_ranked

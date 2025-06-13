@@ -1,6 +1,6 @@
 from datetime import datetime
 from neo4j import Driver
-from app.core.database import neo4j_connection
+from app.core.neo4j_client import neo4j_connection
 from app.models.concept import ConceptInput, EvolutionResult
 from app.utils.db_utils import get_next_version
 from typing import Optional

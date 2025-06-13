@@ -2,6 +2,9 @@ from typing import List
 from app.core.openai_client import client
 from app.models.concept import ConceptMatch
 from typing import Optional
+from app.core.neo4j_client import neo4j_connection
+from app.models.concept import ConceptMatch
+from neo4j import Driver
 
 def get_embeddings(input: str) -> List[float]:
     response = client.embeddings.create(
@@ -12,10 +15,6 @@ def get_embeddings(input: str) -> List[float]:
     return response.data[0].embedding
 
 def get_similar_concepts(embedding: List[float], k: int = 5) -> List[ConceptMatch]:
-    from app.core.database import neo4j_connection
-    from app.models.concept import ConceptMatch
-    from neo4j import Driver
-    
     driver: Optional[Driver] = None
     try:
         driver = neo4j_connection.connect()
