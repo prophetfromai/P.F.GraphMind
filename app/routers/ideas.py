@@ -111,7 +111,9 @@ def get_similar_ideas(idea: ConceptInput):
     
     # Step 2: Find similar concepts using vector search
     initial_matches = get_similar_concepts(idea.embedding, k=10)
-    return initial_matches
+    print(f"initial_matches: {initial_matches}")
+    results_without_embeddings = [ConceptMatch(**{k: v for k, v in match.model_dump().items() if k != 'embedding'}) for match in initial_matches]
+    return results_without_embeddings
 
 @router.post("/get-similar-ideas-reranked")
 def get_similar_ideas_reranked(idea: ConceptInput):
@@ -121,6 +123,7 @@ def get_similar_ideas_reranked(idea: ConceptInput):
     # Step 2: Find similar concepts using vector search
     initial_matches = get_similar_concepts(idea.embedding, k=10)
     reranked_matches = rerank_matches(idea, initial_matches)
-    return reranked_matches
+    results_without_embeddings = [ConceptMatch(**{k: v for k, v in match.model_dump().items() if k != 'embedding'}) for match in reranked_matches]
+    return results_without_embeddings
 
 

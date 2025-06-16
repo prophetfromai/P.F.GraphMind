@@ -66,5 +66,4 @@ def get_similar_concepts(embedding: List[float], k: int = 5) -> List[ConceptMatc
                 record_dict['valid_from'] = record_dict['valid_from'].to_native()
             results.append(ConceptMatch(**record_dict))
         
-        print(f"results: {results}")
         return results
